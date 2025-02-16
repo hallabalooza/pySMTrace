@@ -1,0 +1,12 @@
+[submodule "pySML"]
+	path = pySML
+	url = https://github.com/hallabalooza/pySML
+[submodule "pyOBIS"]
+	path = pyOBIS
+	url = https://github.com/hallabalooza/pyOBIS
+[submodule "pyPCAPNG"]
+	path = pyPCAPNG
+	url = https://github.com/hallabalooza/pyPCAPNG
+[submodule "pyLOG"]
+	path = pyLOG
+	url = https://github.com/hallabalooza/pyLOG
