@@ -18,10 +18,10 @@ short plain text report of all last received data points or attached PCAPNG file
   [pyserial](https://github.com/pyserial/pyserial) and
   [pyyaml](https://github.com/yaml/pyyaml),
    e.g. via [pip](https://github.com/pypa/pip)
-* clone the repository pySMTrace into any directory **<PYSMTRACE>**
+* clone the repository pySMTrace into any directory **\<PYSMTRACE\>**
 * edit **pySMTrace.cfg** to your needs
 * start data acquisition
-  * open a command line and change dir into **<PYSMTRACE>**
+  * open a command line and change dir into **\<PYSMTRACE\>**
   * type `python3 pySMTrace.py` and press `ENTER`
 * enjoy pySMTrace
 * close data acquisition
