@@ -161,7 +161,6 @@ class SMTrace_Report(object):
                 if (k in self.__dat): self.__dat[k].update(dict(tstmp=datetime.datetime.utcfromtimestamp(pTimestamp/1E9), **v))
                 else                : self.__dat[k] = dict(tstmp=datetime.datetime.utcfromtimestamp(pTimestamp/1E9), **v)
 
-
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     class EMailSml(object):
 
@@ -252,14 +251,6 @@ class SMTrace_Report(object):
         self.__trg.shutdown()
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def __pcapng_init(self):
-        if (self.__pcp):
-          vTimestamp = time.time_ns()
-          self.__pcp.addSHB(pMajorVersion=1, pMinorVersion=0)
-          self.__pcp.addIDB(pLinkType=1, pSnapLen=0, pOptions=[(pyPCAPNG.IDBOptionType.TSRESOL, [9]), (pyPCAPNG.IDBOptionType.NAME, bytes(pIdf, encoding="utf-8")), (pyPCAPNG.IDBOptionType.ENDOFOPT, [])])
-          self.__pcp.addISB(pInterfaceId=int(0), pTimestamp=int(vTimestamp), pOptions=[(pyPCAPNG.ISBOptionType.STARTTIME, struct.pack("II", ((vTimestamp & 0xFFFFFFFF00000000) >> 32), (vTimestamp & 0x00000000FFFFFFFF))), (pyPCAPNG.ISBOptionType.ENDOFOPT, [])])
-
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def log(self, pData):
         vTstmp = time.time_ns()
         for vHdl in self.__hdl:
@@ -282,14 +273,28 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
         @param  pIdf  A HM meter identifier.
         @param  pCfg  A HM meter configuration.
         """
-        self.__idf     = pIdf
-        self.__cfg     = pCfg
-        self.__rpt     = None
-        self.__log     = pyLOG.Log(self.__cfg["logref"])
-        self.__obs     = pyOBIS.OBIS()
-        self.buffer    = bytearray()
-        self.transport = None
+        self.__buffer    = bytearray()
+        self.__log       = pyLOG.Log(pCfg["logref"])
+        self.__obs       = pyOBIS.OBIS()
+        self.__rpt       = SMTrace_Report(pyRPT.Rpt(pCfg["rptref"]), pIdf + " / " + pCfg["note"])
+        self.__transport = None
         self.__log.log_callinfo()
+
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    def __del__(self):
+        """
+        @brief  Destructor
+        """
+        self.__log.log_callinfo()
+        del(self.__rpt)
+
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    def __call__(self):
+        """
+        @brief  Call operator.
+        """
+        self.__log.log_callinfo()
+        return self
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def connection_made(self, transport):
@@ -298,7 +303,7 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
         @param  transport  The instance used to write to serial port.
         """
         self.__log.log_callinfo()
-        self.transport = transport
+        self.__transport = transport
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def connection_lost(self, exc):
@@ -307,7 +312,7 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
         @param  exc  Exception if connection was terminated by error else None.
         """
         self.__log.log_callinfo()
-        self.transport = None
+        self.__transport = None
         super(SMTrace_SMLPacket, self).connection_lost(exc)
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -317,31 +322,15 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
         @param  data  Bytes received via serial port.
         """
         self.__log.log_callinfo()
-        self.buffer.extend(data)
-        packets = [packet for packet in re.finditer(bytes("(?<!\x1b\x1b\x1b\x1b)\x1b\x1b\x1b\x1b\x01\x01\x01\x01.*?(?<!\x1b\x1b\x1b\x1b)\x1b\x1b\x1b\x1b\x1a(\x00|\x01|\x02|\x03)..".encode("ascii")), self.buffer, re.DOTALL)]
+        self.__buffer.extend(data)
+        packets = [packet for packet in re.finditer(bytes("(?<!\x1b\x1b\x1b\x1b)\x1b\x1b\x1b\x1b\x01\x01\x01\x01.*?(?<!\x1b\x1b\x1b\x1b)\x1b\x1b\x1b\x1b\x1a(\x00|\x01|\x02|\x03)..".encode("ascii")), self.__buffer, re.DOTALL)]
         if ( packets != [] ):
             for packet in packets:
-                self.handle_packet(self.buffer[packet.start():packet.end()])
-            del self.buffer[:packets[-1].end()]
+                self.__handle_packet(self.__buffer[packet.start():packet.end()])
+            del self.__buffer[:packets[-1].end()]
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def prepare(self):
-        """
-        @brief  Prepare the processing of completely received packest. This is firstly called in a threads run method.
-        """
-        self.__log.log_callinfo()
-        self.__rpt = SMTrace_Report(pyRPT.Rpt(self.__cfg["rptref"]), self.__idf + " / " + self.__cfg["note"])
-
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def disperse(self):
-        """
-        @brief  Disperse the processing of completely received packest. This is lastly called in a threads run method.
-        """
-        self.__log.log_callinfo()
-        del(self.__rpt)
-
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def handle_packet(self, packet):
+    def __handle_packet(self, packet):
         """
         @brief  Process a completely received packet. This is repetitive called in a threads run method.
         @param  packet  A SML_Telegram.
@@ -377,82 +366,6 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
         except Exception as e:
             self.__log.log(pyLOG.LogLvl.ERROR, "\n{}\n{}".format(e, packet))
 
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def __call__(self):
-        """
-        @brief  Call operator.
-        """
-        self.__log.log_callinfo()
-        return self
-
-
-########################################################################################################################
-
-
-class SMTrace_Thread(serial.threaded.ReaderThread):
-  """
-  @brief  Customized version of serial.threaded.ReaderThread, that calls specific protocol_factory methods at the
-          beginning and at the end of the receive thread.
-  """
-
-  def __init__(self, serial_instance, protocol_factory):
-    """
-    @brief  Constructor.
-    @param  serial_instance   Serial port instance (opened) to be used.
-    @param  protocol_factory  A callable that returns a Protocol instance.
-    """
-    super(SMTrace_Thread, self).__init__(serial_instance, protocol_factory)
-    self.__stop = threading.Event()
-
-  def close(self):
-    """
-    @brief  Close the serial port and exit reader thread.
-    """
-    if (None != self.protocol):
-      self.__stop.set()
-    super(SMTrace_Thread, self).close()
-
-  def run(self):
-    """
-    @brief  The actual reader loop driven by the thread.
-    """
-    if (None == self.protocol):
-      if (not hasattr(self.serial, 'cancel_read')):
-        self.serial.timeout = 1
-      self.protocol = self.protocol_factory()
-      self.protocol.prepare()
-      try:
-        self.protocol.connection_made(self)
-      except Exception as e:
-        self.alive = False
-        self.protocol.connection_lost(e)
-        self._connection_made.set()
-        return
-      error = None
-      self._connection_made.set()
-      while (self.alive and self.serial.is_open):
-        try:
-          # read all that is there or wait for one byte (blocking)
-          data = self.serial.read(self.serial.in_waiting or 1)
-        except serial.SerialException as e:
-          # probably some I/O problem such as disconnected USB serial
-          # adapters -> exit
-          error = e
-          break
-        else:
-          if (data):
-            try:
-              self.protocol.data_received(data)
-            except Exception as e:
-              error = e
-              break
-        if (True == self.__stop.is_set()):
-          self.protocol.disperse()
-          break
-      self.alive = False
-      self.protocol.connection_lost(error)
-      self.protocol = None
-
 
 ########################################################################################################################
 
@@ -472,27 +385,26 @@ class SMTrace:
     self.__log   = pyLOG.Log(self.__cfg["general"]["logref"])
     self.__thd   = {}
 
+    self.__log.log_callinfo()
+
     vMapBytesize = {5:serial.FIVEBITS, 6:serial.SIXBITS, 7:serial.SEVENBITS, 8:serial.EIGHTBITS}
     vMapStopbits = {1:serial.STOPBITS_ONE, 15:serial.STOPBITS_ONE_POINT_FIVE, 2:serial.STOPBITS_TWO}
     vMapParity   = {"none":serial.PARITY_NONE, "even":serial.PARITY_EVEN, "odd":serial.PARITY_ODD, "mark":serial.PARITY_MARK, "space":serial.PARITY_SPACE}
 
-    self.__log.log_callinfo()
-
     for idf_meter, cfg_meter in self.__cfg["meters"].items():
       self.__log.log(pyLOG.LogLvl.INFO, "configuring meter '{}' started".format(idf_meter))
       try:
-        self.__thd[idf_meter] = SMTrace_Thread(serial.Serial(port     = cfg_meter["serial"][0],
-                                                             baudrate = cfg_meter["serial"][1],
-                                                             bytesize = vMapBytesize[cfg_meter["serial"][2]],
-                                                             stopbits = vMapStopbits[cfg_meter["serial"][3]],
-                                                             parity   = vMapParity  [cfg_meter["serial"][4]],
-                                                             timeout  = 0
-                                                            ),
-                                                            SMTrace_SMLPacket(idf_meter, cfg_meter)
-                                              )
+        self.__thd[idf_meter] = serial.threaded.ReaderThread(serial.Serial(port     = cfg_meter["serial"][0],
+                                                                           baudrate = cfg_meter["serial"][1],
+                                                                           bytesize = vMapBytesize[cfg_meter["serial"][2]],
+                                                                           stopbits = vMapStopbits[cfg_meter["serial"][3]],
+                                                                           parity   = vMapParity  [cfg_meter["serial"][4]],
+                                                                           timeout  = None
+                                                                          ),
+                                                             SMTrace_SMLPacket(idf_meter, cfg_meter)
+                                                            )
         self.__thd[idf_meter].start()
-        for tk,tv in self.__thd.items():
-          self.__log.log(pyLOG.LogLvl.INFO, "  receive thread '{}' started".format(tv))
+        self.__log.log(pyLOG.LogLvl.INFO, "  receive thread '{}' started".format(self.__thd[idf_meter]))
         self.__log.log(pyLOG.LogLvl.INFO, "configuring meter '{}' done".format(idf_meter))
       except:
         self.__log.log(pyLOG.LogLvl.ERROR, "configuring meter '{}' failed".format(idf_meter))
@@ -530,7 +442,7 @@ def signal_handler(signal, frame):
   global vSMTrace
   vSMTrace.stop()
   while (True == vSMTrace.isalive()):
-    time.sleep(0.1)
+    time.sleep(2.5)
   os._exit(1)
 
 
@@ -546,7 +458,8 @@ if (__name__ == '__main__'):
     with open("pySMTrace.cfg", "r") as fhdl:
         vCfg = yaml.load(fhdl.read(), Loader=yaml.SafeLoader)
 
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT,  signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     pyLOG.LogInit(vCfg["general"]["logger"])
     pyRPT.RptInit(vCfg["general"]["reporter"])
@@ -554,4 +467,4 @@ if (__name__ == '__main__'):
     vSMTrace = SMTrace(vCfg)
 
     while (True):
-        time.sleep(30)
+        time.sleep(30.0)
