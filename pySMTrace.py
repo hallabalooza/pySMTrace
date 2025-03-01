@@ -145,7 +145,7 @@ class SMTrace_Report(object):
                        ):
                         vSmtp.starttls()
                         vSmtp.login(*self.__cfg["auth"])
-                    try   : vSmtp.send_message(vMssg, from_addr=None, to_addrs=None); raise
+                    try   : vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
                     except:
                         if (self.__log is not None): self.__log.log(pyLOG.LogLvl.ERROR, "Could not send email to '{fTo}'".format(fTo=self.__cfg["to"]))
 
