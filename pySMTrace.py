@@ -107,11 +107,12 @@ class SMTrace_Report(object):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     class EMailTxt(object):
 
-        def __init__(self, pCfg, pTrg, pIdf=None):
+        def __init__(self, pCfg:dict, pTrg:apscheduler.schedulers.background.BackgroundScheduler, pLog:pyLOG.Log=None, pIdf=None):
             self.__cfg = pCfg
-            self.__trg = pTrg
-            self.__idf = pIdf
             self.__dat = dict()
+            self.__idf = pIdf
+            self.__log = pLog
+            self.__trg = pTrg
             for v_cron in self.__cfg["cron"]:
                 self.__trg.add_job(self, trigger=apscheduler.triggers.cron.CronTrigger().from_crontab(v_cron))
 
@@ -144,7 +145,9 @@ class SMTrace_Report(object):
                        ):
                         vSmtp.starttls()
                         vSmtp.login(*self.__cfg["auth"])
-                    vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
+                    try   : vSmtp.send_message(vMssg, from_addr=None, to_addrs=None); raise
+                    except:
+                        if (self.__log is not None): self.__log.log(pyLOG.LogLvl.ERROR, "Could not send email to '{fTo}'".format(fTo=self.__cfg["to"]))
 
         def log(self, pTimestamp:int, pData:dict):
             """
@@ -164,14 +167,15 @@ class SMTrace_Report(object):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     class EMailSml(object):
 
-        def __init__(self, pCfg, pTrg, pIdf=None):
+        def __init__(self, pCfg:dict, pTrg:apscheduler.schedulers.background.BackgroundScheduler, pLog:pyLOG.Log=None, pIdf=None):
             self.__cfg = pCfg
-            self.__trg = pTrg
-            self.__idf = pIdf
+            self.__cnt = 0
             self.__dat = None
             self.__idb = None
+            self.__idf = pIdf
+            self.__log = pLog
             self.__nam = None
-            self.__cnt = 0
+            self.__trg = pTrg
             for v_cron in self.__cfg["cron"]:
                 self.__trg.add_job(self, trigger=apscheduler.triggers.cron.CronTrigger().from_crontab(v_cron))
             self.__open(time.time_ns())
@@ -192,9 +196,9 @@ class SMTrace_Report(object):
             if (vSubj                  is not None): vMssg.add_header("Subject", vSubj)
             vMssg.attach(email.mime.text.MIMEText("---"))
             with open(self.__nam, "rb") as vFhdl:
-              vPart = email.mime.application.MIMEApplication(vFhdl.read(), Name=os.path.basename(self.__nam))
-              vPart.add_header('Content-Disposition', 'attachment; filename={}'.format(os.path.basename(self.__nam)))
-              vMssg.attach(vPart)
+                vPart = email.mime.application.MIMEApplication(vFhdl.read(), Name=os.path.basename(self.__nam))
+                vPart.add_header('Content-Disposition', 'attachment; filename={}'.format(os.path.basename(self.__nam)))
+                vMssg.attach(vPart)
             with smtplib.SMTP(self.__cfg["srvr"], self.__cfg["port"]) as vSmtp:
                 if (    (self.__cfg["type"] == "STARTTLS"    )
                     and (isinstance(self.__cfg["auth"], list))
@@ -202,7 +206,9 @@ class SMTrace_Report(object):
                    ):
                     vSmtp.starttls()
                     vSmtp.login(*self.__cfg["auth"])
-                vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
+                try   : vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
+                except:
+                    if (self.__log is not None): self.__log.log(pyLOG.LogLvl.ERROR, "Could not send email to '{fTo}'".format(fTo=self.__cfg["to"]))
 
         def __open(self, pTimestamp:int):
             self.__cnt = 0
@@ -231,7 +237,7 @@ class SMTrace_Report(object):
             self.__cnt += 1
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def __init__(self, pCfg, pIdf=None):
+    def __init__(self, pCfg:dict, pLog:pyLOG.Log=None, pIdf=None):
         """
         @brief  Constructor.
         @param  pCfg  A Reporter configuration.
@@ -240,7 +246,8 @@ class SMTrace_Report(object):
         self.__cfg = pCfg
         self.__idf = pIdf
         self.__trg = apscheduler.schedulers.background.BackgroundScheduler()
-        self.__hdl = [eval(pyRPT.Hdl(vHdl)["class"]+"(vHdl, vTrg, vIdf)", {"SMTrace_Report": self, "vHdl":pyRPT.Hdl(vHdl), "vTrg": self.__trg, "vIdf": self.__idf}) for vHdl in self.__cfg["handlers"]]
+        self.__log = pLog
+        self.__hdl = [eval(pyRPT.Hdl(vHdl)["class"]+"(vHdl, vTrg, vLog, vIdf)", {"SMTrace_Report": self, "vHdl":pyRPT.Hdl(vHdl), "vTrg": self.__trg, "vLog":self.__log, "vIdf": self.__idf}) for vHdl in self.__cfg["handlers"]]
         self.__trg.start()
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -251,7 +258,11 @@ class SMTrace_Report(object):
         self.__trg.shutdown()
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def log(self, pData):
+    def log(self, pData:dict):
+        """
+        @brief  Process a completely received packet. This is repetitive called in a threads run method.
+        @param  pData  A SML_Telegram.
+        """
         vTstmp = time.time_ns()
         for vHdl in self.__hdl:
             if   (isinstance(vHdl, self.EMailTxt) and isinstance(pData, dict              )): vHdl.log(vTstmp, pData)
@@ -267,7 +278,7 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
     """
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def __init__(self, pIdf, pCfg):
+    def __init__(self, pIdf:str, pCfg:dict):
         """
         @brief  Constructor.
         @param  pIdf  A HM meter identifier.
@@ -276,7 +287,7 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
         self.__buffer    = bytearray()
         self.__log       = pyLOG.Log(pCfg["logref"])
         self.__obs       = pyOBIS.OBIS()
-        self.__rpt       = SMTrace_Report(pyRPT.Rpt(pCfg["rptref"]), pIdf + " / " + pCfg["note"])
+        self.__rpt       = SMTrace_Report(pyRPT.Rpt(pCfg["rptref"]), self.__log, pIdf + " / " + pCfg["note"])
         self.__transport = None
         self.__log.log_callinfo()
 
@@ -316,7 +327,7 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
         super(SMTrace_SMLPacket, self).connection_lost(exc)
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def data_received(self, data):
+    def data_received(self, data:bytes):
         """
         @brief  Buffer receives data and searchs for SML_Telegram terminators, when found, call handle_packet().
         @param  data  Bytes received via serial port.
@@ -330,7 +341,7 @@ class SMTrace_SMLPacket(serial.threaded.Protocol):
             del self.__buffer[:packets[-1].end()]
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def __handle_packet(self, packet):
+    def __handle_packet(self, packet:bytes):
         """
         @brief  Process a completely received packet. This is repetitive called in a threads run method.
         @param  packet  A SML_Telegram.
@@ -376,7 +387,7 @@ class SMTrace:
   """
 
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  def __init__(self, pCfg):
+  def __init__(self, pCfg:dict):
     """
     @brief  Constructor.
     @param  pCfg  SMTrace configuration.
