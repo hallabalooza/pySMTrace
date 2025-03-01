@@ -50,8 +50,10 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="<id_vendor_2nd_device>", ATTRS{idProduct}=="
 Description=pySMTrace
 
 [Service]
-Type=forking
-ExecStart=/bin/bash -c 'cd /home/dietpi/pySMTrace/ && python3 pySMTrace.py'
+Type=simple
+ExecStart=python3 /home/dietpi/pySMTrace/pySMTrace.py'
+ExecStop=
+KillSignal=SIGINT
 User=dietpi
 WorkingDirectory=/home/dietpi/pySMTrace
 
@@ -68,4 +70,6 @@ WantedBy=multi-user.target
 * plug in the power supply
 * after 1st boot restart the system
 * login as `dietpi`
+* call `python3 -m pip install apscheduler colorlog croniter pyserial pyyaml`
 * call `systemctl enable pySMTrace.service`
+* call `systemctl start pySMTrace.service`
