@@ -144,8 +144,13 @@ class SMTrace_Report(object):
                         and (len(self.__cfg["auth"]) == 2        )
                        ):
                         vSmtp.starttls()
-                        vSmtp.login(*self.__cfg["auth"])
-                    try   : vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
+                        try:
+                            vSmtp.login(*self.__cfg["auth"])
+                        except:
+                            if (self.__log is not None): self.__log.log(pyLOG.LogLvl.ERROR, "Could not login into '{fSrvr}:{fPort}'".format(fSrvr=self.__cfg["srvr"], fPort=self.__cfg["port"]))
+                    try:
+                        vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
+                        if (self.__log is not None): self.__log.log(pyLOG.LogLvl.INFO, "Email successfully sent to '{fTo}'".format(fTo=self.__cfg["to"]))
                     except:
                         if (self.__log is not None): self.__log.log(pyLOG.LogLvl.ERROR, "Could not send email to '{fTo}'".format(fTo=self.__cfg["to"]))
 
@@ -205,8 +210,13 @@ class SMTrace_Report(object):
                     and (len(self.__cfg["auth"]) == 2        )
                    ):
                     vSmtp.starttls()
-                    vSmtp.login(*self.__cfg["auth"])
-                try   : vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
+                    try:
+                        vSmtp.login(*self.__cfg["auth"])
+                    except:
+                        if (self.__log is not None): self.__log.log(pyLOG.LogLvl.ERROR, "Could not login into '{fSrvr}:{fPort}'".format(fSrvr=self.__cfg["srvr"], fPort=self.__cfg["port"]))
+                try:
+                    vSmtp.send_message(vMssg, from_addr=None, to_addrs=None)
+                    if (self.__log is not None): self.__log.log(pyLOG.LogLvl.INFO, "Email successfully sent to '{fTo}'".format(fTo=self.__cfg["to"]))
                 except:
                     if (self.__log is not None): self.__log.log(pyLOG.LogLvl.ERROR, "Could not send email to '{fTo}'".format(fTo=self.__cfg["to"]))
 
